@@ -5,34 +5,59 @@
 #include <pthread.h>
 #include <cstring>
 #include <cstdlib>
+#include <vector>
 //pthread是只有linux能用吗？注意编译的时候要加-lpthread
 
 #define router_name_size 10
 
-char router_name[router_name_size];
-int udp_port;       //udp端口号
-bool pause = false; // 标志是否暂停，false时程序正常执行，true时程序暂停执行。注意恢复的时候要重新初始化
+const char *config_path = "config.txt";
 
 class Node
 {
 private:
-    float distance;
     char exit_router[router_name_size]; //出口路由
+    float distance;
+    char name[router_name_size];
 
 public:
-    Node(char *, float);
+    Node(char *, char *, float);
     ~Node();
+    float get_distance();
+    char *get_exit();
+    void alter_exit(char *);
+    char *get_name();
 };
 
-Node::Node(char *exit_router, float distance)
+Node::Node(char *name, char *exit_router, float distance)
 {
     Node::distance = distance;
+    strncpy(Node::name, name, router_name_size);
     strncpy(Node::exit_router, exit_router, router_name_size);
-    std::cout << "Node " << Node::exit_router << " init, distance=" << Node::distance << std::endl;
+    std::cout << "Node " << name << " init, distance=" << Node::distance << std::endl;
 }
 
 Node::~Node()
 {
+}
+
+float Node::get_distance()
+{
+    return Node::distance;
+}
+
+char *Node::get_exit()
+{
+    return Node::exit_router;
+}
+
+void Node::alter_exit(char *new_exit)
+{
+    std::strncpy(Node::exit_router, new_exit, router_name_size);
+}
+
+char *Node::get_name()
+{
+    return Node::name;
 }
 
 class Neighbor
@@ -44,6 +69,8 @@ private:
 public:
     Neighbor(float, int);
     ~Neighbor();
+    float get_distance();
+    int get_port();
 };
 
 Neighbor::Neighbor(float distance, int udp_port)
@@ -56,12 +83,9 @@ Neighbor::~Neighbor()
 {
 }
 
-std::map<char *, Node> nodes; //用map是因为方便查询
-std::map<char *, Neighbor> neighbors;
-
 void init(char *name, char *udp, char *filename);
 
-void send_message(); //编辑要发送的消息
+std::string send_message(); //编辑要发送的消息
 
 void send(); //通过socket通信发送消息
 
