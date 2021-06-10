@@ -105,6 +105,14 @@
   > 无法打开“strtod_l.c”: 无法读取文件'/build/glibc-eX1tMB/glibc-2.31/stdlib/strtod_l.c' (Error: 无法解析不存在的文件"/build/glibc-eX1tMB/glibc-2.31/stdlib/strtod_l.c")。
   - 对std::map不够熟悉，写了一半才发现不能用map存，只好改用vector
   - 进度太慢，可能得呼叫大佬了
+- 计划
+  1. 掌握多线程编程，写好计时器
+  2. 写出socket通信
+  3. 把socket嵌入代码
+  4. 调试
+  5. 加入键盘控制部分
+  6. 调试
+
 <br></br>
 
 ## 笔记

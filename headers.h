@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <vector>
+#include <unistd.h>
 //pthread是只有linux能用吗？注意编译的时候要加-lpthread
 
 #define router_name_size 10
@@ -89,14 +90,20 @@ std::string send_message(); //编辑要发送的消息
 
 void send(); //通过socket通信发送消息
 
-void send_thread(); //负责发送的线程的执行函数
+void *send_thread(void *args); //负责发送的线程的执行函数
 
 void listen(); //通过socket通信接收消息，并将接收到的消息进行初步的切割
 
-void update_router_table(); //更新路由表
+void update_table(); //更新路由表
 
-void listen_thread(); //负责接收的线程的执行函数
+void output_table(); //输出路由表
+
+void *input_thread(void *args); //负责接收的线程的执行函数
 
 void listen_keyboard(); //负责监听键盘输入的线程的执行函数。注意恢复的时候要重新初始化
 
-void exit_prog(); //退出整个程序
+void restart_prog(); //暂停后的重启。监听键盘输入的线程还没想好怎么操作
+
+void exit_prog(); //退出
+
+void *listen_thread(void *args); //监听线程

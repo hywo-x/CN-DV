@@ -1,8 +1,8 @@
 #include "headers.h"
 
 char router_name[router_name_size];
-int port;           //本机udp端口号
-bool pause = false; // 标志是否暂停，false时程序正常执行，true时程序暂停执行。注意恢复的时候要重新初始化
+int port;                //本机udp端口号
+bool pause_flag = false; // 标志是否暂停，false时程序正常执行，true时程序暂停执行。注意恢复的时候要重新初始化
 int interval;
 int max_distance;
 int max_wait_time;
@@ -14,11 +14,16 @@ int main(int argc, char **argv)
 {
     init(argv[1], argv[2], argv[3]); //启动程序的格式为"./router.exe a 50001 a.txt"，argv[1]表示路由名，argv[2]表示udp端口号，argv[3]表示初始化文件
 
+    pthread_t tid1, tid2, tid3;
+
     //新开一个线程，定时发送路由表
+    pthread_create(&tid1, NULL, send_thread, NULL);
 
     //新开一个线程，负责接收路由表
+    pthread_create(&tid2, NULL, input_thread, NULL);
 
     //新开一个线程监听键盘输入，包括暂停/恢复，更改距离
+    pthread_create(&tid3, NULL, listen_thread, NULL);
 
     //测试用
     std::cout << send_message() << std::endl;
@@ -120,4 +125,56 @@ std::string send_message()
         message = message + " " + iter->get_name() + " " + std::to_string(iter->get_distance());
     }
     return message;
+}
+
+void send()
+{
+}
+
+void *send_thread(void *args)
+{
+    while (true)
+    {
+        std::cout << "send thread" << std::endl;
+        usleep(interval);
+    }
+    pthread_exit(NULL);
+}
+
+void listen()
+{
+}
+
+void update_table()
+{
+}
+
+void *input_thread(void *args)
+{
+    while (true)
+    {
+        std::cout << "input thread" << std::endl;
+        usleep(interval);
+    }
+}
+
+void listen_keyboard()
+{
+}
+
+void restart_prog()
+{
+}
+
+void exit_prog()
+{
+}
+
+void *listen_thread(void *args)
+{
+    while (true)
+    {
+        std::cout << "listen thread" << std::endl;
+        usleep(interval);
+    }
 }
