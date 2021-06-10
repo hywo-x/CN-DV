@@ -1,7 +1,7 @@
 #include "headers.h"
 
-char router_name[router_name_size];
-int port;                //本机udp端口号
+char router_name[ROUTER_NAME_SIZE];
+int my_port;             //本机udp端口号
 bool pause_flag = false; // 标志是否暂停，false时程序正常执行，true时程序暂停执行。注意恢复的时候要重新初始化
 int interval;
 int max_distance;
@@ -12,18 +12,23 @@ std::vector<Neighbor> neighbors;
 
 int main(int argc, char **argv)
 {
+    std::cout << argv[1] << argv[2] << argv[3] << std::endl;
     init(argv[1], argv[2], argv[3]); //启动程序的格式为"./router.exe a 50001 a.txt"，argv[1]表示路由名，argv[2]表示udp端口号，argv[3]表示初始化文件
 
-    pthread_t tid1, tid2, tid3;
+    pthread_t tid1, tid_recv, tid_listen;
 
     //新开一个线程，定时发送路由表
     pthread_create(&tid1, NULL, send_thread, NULL);
 
     //新开一个线程，负责接收路由表
-    pthread_create(&tid2, NULL, input_thread, NULL);
+    pthread_create(&tid_recv, NULL, recv_thread, NULL);
 
     //新开一个线程监听键盘输入，包括暂停/恢复，更改距离
-    pthread_create(&tid3, NULL, listen_thread, NULL);
+    pthread_create(&tid_listen, NULL, listen_thread, NULL);
+
+    pthread_join(tid1, NULL);
+    pthread_join(tid_recv, NULL);
+    pthread_join(tid_listen, NULL);
 
     //测试用
     std::cout << send_message() << std::endl;
@@ -35,16 +40,16 @@ int main(int argc, char **argv)
 void init(char *cur_name, char *udp_port, char *filename)
 {
     //读取邻居路由文件
-    FILE *f = std::fopen(filename, "r");
+    FILE *f = fopen(filename, "r");
     int count;
-    char neighbor_name[router_name_size];
+    char neighbor_name[ROUTER_NAME_SIZE];
     float dist;
     int udp;
-    fscanf(f, "%d", &count);
+    fscanf(f, "%d\n", &count);
     for (int i = 0; i < count; ++i)
     {
-        memset(neighbor_name, 0, router_name_size);
-        fscanf(f, "%s %f %d", neighbor_name, &dist, &udp);
+        memset(neighbor_name, 0, ROUTER_NAME_SIZE);
+        fscanf(f, "%s %f %d\n", neighbor_name, &dist, &udp);
 
         Neighbor neighbor = Neighbor(dist, udp);
         neighbors.push_back(neighbor);
@@ -53,8 +58,8 @@ void init(char *cur_name, char *udp_port, char *filename)
     }
 
     //系统文件配置
-    strncpy(router_name, cur_name, router_name_size);
-    f = std::fopen(config_path, "r");
+    strncpy(router_name, cur_name, ROUTER_NAME_SIZE);
+    f = fopen(config_path, "r");
     fscanf(f, "%d %d %d", &interval, &max_distance, &max_wait_time);
 
     fclose(f);
@@ -133,10 +138,46 @@ void send()
 
 void *send_thread(void *args)
 {
+    //绑定端口
+    int client_fd;
+    if ((client_fd = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
+    {
+        std::cout << "Can't create socket" << std::endl;
+        exit(-1);
+    }
+    struct sockaddr_in client_addr;
+    memset(&client_addr, 0, sizeof(client_addr));
+    client_addr.sin_family = AF_INET;
+    inet_pton(AF_INET, SERVER_IP, &client_addr.sin_addr);
+    char msg[MESSAGE_SIZE];
+
     while (true)
     {
-        std::cout << "send thread" << std::endl;
-        usleep(interval);
+        //std::cout << "send thread" << std::endl;
+        std::string tmp_msg = send_message();
+        memset(msg, 0, MESSAGE_SIZE);
+        for (int i = 0; i < tmp_msg.length(); ++i)
+        {
+            msg[i] = tmp_msg[i];
+        }
+        for (auto iter = neighbors.begin(); iter != neighbors.end(); iter++)
+        {
+            int neighbor_port = iter->get_port();
+            client_addr.sin_port = htonl(neighbor_port);
+            int len = strlen(msg);
+            int len1;
+            if (len != (len1 = sendto(client_fd, msg, len, 0, (struct sockaddr *)&client_addr, sizeof(client_addr))))
+            {
+                std::cout << "Send message error" << std::endl;
+            }
+            else
+            {
+                std::cout << "Send message to " << neighbor_port << " successfully" << std::endl;
+            }
+
+            //应该是这么写吧
+        }
+        sleep(interval);
     }
     pthread_exit(NULL);
 }
@@ -149,12 +190,12 @@ void update_table()
 {
 }
 
-void *input_thread(void *args)
+void *recv_thread(void *args)
 {
     while (true)
     {
-        std::cout << "input thread" << std::endl;
-        usleep(interval);
+        std::cout << "recv thread" << std::endl;
+        sleep(interval);
     }
 }
 
@@ -175,6 +216,6 @@ void *listen_thread(void *args)
     while (true)
     {
         std::cout << "listen thread" << std::endl;
-        usleep(interval);
+        sleep(interval);
     }
 }

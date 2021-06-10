@@ -7,18 +7,23 @@
 #include <cstdlib>
 #include <vector>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 //pthread是只有linux能用吗？注意编译的时候要加-lpthread
 
-#define router_name_size 10
+#define ROUTER_NAME_SIZE 10
+#define MESSAGE_SIZE 1024
+#define SERVER_IP "192.168.1.1"
 
 const char *config_path = "config.txt";
 
 class Node
 {
 private:
-    char exit_router[router_name_size]; //出口路由
+    char exit_router[ROUTER_NAME_SIZE]; //出口路由
     float distance;
-    char name[router_name_size];
+    char name[ROUTER_NAME_SIZE];
 
 public:
     Node(char *, char *, float);
@@ -32,8 +37,8 @@ public:
 Node::Node(char *name, char *exit_router, float distance)
 {
     Node::distance = distance;
-    strncpy(Node::name, name, router_name_size);
-    strncpy(Node::exit_router, exit_router, router_name_size);
+    strncpy(Node::name, name, ROUTER_NAME_SIZE);
+    strncpy(Node::exit_router, exit_router, ROUTER_NAME_SIZE);
     std::cout << "Node " << name << " init, distance=" << Node::distance << std::endl;
 }
 
@@ -53,7 +58,7 @@ char *Node::get_exit()
 
 void Node::alter_exit(char *new_exit)
 {
-    std::strncpy(Node::exit_router, new_exit, router_name_size);
+    std::strncpy(Node::exit_router, new_exit, ROUTER_NAME_SIZE);
 }
 
 char *Node::get_name()
@@ -84,6 +89,16 @@ Neighbor::~Neighbor()
 {
 }
 
+float Neighbor::get_distance()
+{
+    return Neighbor::distance;
+}
+
+int Neighbor::get_port()
+{
+    return Neighbor::udp_port;
+}
+
 void init(char *name, char *udp, char *filename);
 
 std::string send_message(); //编辑要发送的消息
@@ -98,7 +113,7 @@ void update_table(); //更新路由表
 
 void output_table(); //输出路由表
 
-void *input_thread(void *args); //负责接收的线程的执行函数
+void *recv_thread(void *args); //负责接收的线程的执行函数
 
 void listen_keyboard(); //负责监听键盘输入的线程的执行函数。注意恢复的时候要重新初始化
 
