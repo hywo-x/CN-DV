@@ -14,7 +14,7 @@
 
 #define ROUTER_NAME_SIZE 10
 #define MESSAGE_SIZE 1024
-#define SERVER_IP "192.168.1.1"
+#define SERVER_IP "127.0.0.1"
 
 const char *config_path = "config.txt";
 
@@ -116,8 +116,6 @@ const char *Neighbor::get_name()
 void init(char *name, char *udp, char *filename);
 
 std::string send_message(); //编辑要发送的消息
-
-void send(); //通过socket通信发送消息
 
 void *send_thread(void *args); //负责发送的线程的执行函数
 
