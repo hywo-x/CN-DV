@@ -30,6 +30,7 @@ public:
     ~Node();
     float get_distance();
     char *get_exit();
+    void alter_distance(float);
     void alter_exit(char *);
     char *get_name();
 };
@@ -56,6 +57,11 @@ char *Node::get_exit()
     return Node::exit_router;
 }
 
+void Node::alter_distance(float new_dist)
+{
+    Node::distance = new_dist;
+}
+
 void Node::alter_exit(char *new_exit)
 {
     std::strncpy(Node::exit_router, new_exit, ROUTER_NAME_SIZE);
@@ -71,18 +77,21 @@ class Neighbor
 private:
     float distance;
     int udp_port;
+    char name[ROUTER_NAME_SIZE];
 
 public:
-    Neighbor(float, int);
+    Neighbor(float, int, char *);
     ~Neighbor();
     float get_distance();
     int get_port();
+    const char *get_name();
 };
 
-Neighbor::Neighbor(float distance, int udp_port)
+Neighbor::Neighbor(float distance, int udp_port, char *name)
 {
     Neighbor::distance = distance;
     Neighbor::udp_port = udp_port;
+    strncpy(Neighbor::name, name, ROUTER_NAME_SIZE);
 }
 
 Neighbor::~Neighbor()
@@ -99,6 +108,11 @@ int Neighbor::get_port()
     return Neighbor::udp_port;
 }
 
+const char *Neighbor::get_name()
+{
+    return (const char *)Neighbor::name;
+}
+
 void init(char *name, char *udp, char *filename);
 
 std::string send_message(); //编辑要发送的消息
@@ -107,13 +121,11 @@ void send(); //通过socket通信发送消息
 
 void *send_thread(void *args); //负责发送的线程的执行函数
 
-void listen(); //通过socket通信接收消息，并将接收到的消息进行初步的切割
+void update_table(char *msg); //更新路由表
 
-void update_table(); //更新路由表
+void print_table(); //输出路由表
 
-void output_table(); //输出路由表
-
-void *recv_thread(void *args); //负责接收的线程的执行函数
+void *recv_thread(void *arg); //负责接收的线程的执行函数
 
 void listen_keyboard(); //负责监听键盘输入的线程的执行函数。注意恢复的时候要重新初始化
 

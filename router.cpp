@@ -15,19 +15,24 @@ int main(int argc, char **argv)
     std::cout << argv[1] << argv[2] << argv[3] << std::endl;
     init(argv[1], argv[2], argv[3]); //启动程序的格式为"./router.exe a 50001 a.txt"，argv[1]表示路由名，argv[2]表示udp端口号，argv[3]表示初始化文件
 
-    pthread_t tid1, tid_recv, tid_listen;
+    pthread_t tid1, tid_recv[3], tid_listen;
 
     //新开一个线程，定时发送路由表
     pthread_create(&tid1, NULL, send_thread, NULL);
 
-    //新开一个线程，负责接收路由表
-    pthread_create(&tid_recv, NULL, recv_thread, NULL);
+    //新开多个线程，负责接收路由表，具体数量由邻居节点数量确定
+    int recv_count = 0;
+    for (auto iter = neighbors.begin(); iter != neighbors.end(); iter++)
+    {
+        int neighbor_port = iter->get_port();
+        pthread_create(&tid_recv[recv_count++], NULL, recv_thread, (void *)neighbor_port);
+        pthread_join(tid_recv[recv_count], NULL);
+    }
 
     //新开一个线程监听键盘输入，包括暂停/恢复，更改距离
     pthread_create(&tid_listen, NULL, listen_thread, NULL);
 
     pthread_join(tid1, NULL);
-    pthread_join(tid_recv, NULL);
     pthread_join(tid_listen, NULL);
 
     //测试用
@@ -51,7 +56,7 @@ void init(char *cur_name, char *udp_port, char *filename)
         memset(neighbor_name, 0, ROUTER_NAME_SIZE);
         fscanf(f, "%s %f %d\n", neighbor_name, &dist, &udp);
 
-        Neighbor neighbor = Neighbor(dist, udp);
+        Neighbor neighbor = Neighbor(dist, udp, neighbor_name);
         neighbors.push_back(neighbor);
         Node node = Node(neighbor_name, neighbor_name, dist);
         nodes.push_back(node);
@@ -139,8 +144,8 @@ void send()
 void *send_thread(void *args)
 {
     //绑定端口
-    int client_fd;
-    if ((client_fd = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
+    int sock;
+    if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
     {
         std::cout << "Can't create socket" << std::endl;
         exit(-1);
@@ -148,7 +153,7 @@ void *send_thread(void *args)
     struct sockaddr_in client_addr;
     memset(&client_addr, 0, sizeof(client_addr));
     client_addr.sin_family = AF_INET;
-    inet_pton(AF_INET, SERVER_IP, &client_addr.sin_addr);
+    client_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
     char msg[MESSAGE_SIZE];
 
     while (true)
@@ -163,12 +168,12 @@ void *send_thread(void *args)
         for (auto iter = neighbors.begin(); iter != neighbors.end(); iter++)
         {
             int neighbor_port = iter->get_port();
-            client_addr.sin_port = htonl(neighbor_port);
-            int len = strlen(msg);
-            int len1;
-            if (len != (len1 = sendto(client_fd, msg, len, 0, (struct sockaddr *)&client_addr, sizeof(client_addr))))
+            client_addr.sin_port = htons(neighbor_port);
+            int len;
+            if ((len = sendto(sock, msg, strlen(msg), 0, (struct sockaddr *)&client_addr, sizeof(client_addr))) < 0)
             {
                 std::cout << "Send message error" << std::endl;
+                std::cout << len << std::endl;
             }
             else
             {
@@ -182,19 +187,106 @@ void *send_thread(void *args)
     pthread_exit(NULL);
 }
 
-void listen()
+void update_table(char *msg)
 {
+    char *tmp = msg;
+    char *rest = NULL;
+    int count = 0;
+    char router_name[ROUTER_NAME_SIZE];
+    float dist;
+    float neighbor_dist;
+    char neighbor_name[ROUTER_NAME_SIZE];
+    while ((tmp = strtok_r(tmp, " ", &rest)) != NULL)
+    {
+        switch (count)
+        {
+        case 0:
+            for (auto iter = neighbors.begin(); iter != neighbors.end(); iter++)
+            {
+                if (strcmp(tmp, iter->get_name()) == 0)
+                {
+                    neighbor_dist = iter->get_distance();
+                    strncpy(neighbor_name, iter->get_name(), ROUTER_NAME_SIZE);
+                }
+            }
+            break;
+
+        case 1:
+            strncpy(router_name, tmp, ROUTER_NAME_SIZE);
+            count++;
+            break;
+
+        case 2:
+            count--;
+            dist = atof(tmp);
+            bool flag = false;
+            for (auto iter = nodes.begin(); iter != nodes.end(); iter++)
+            {
+                if (strcmp(iter->get_name(), router_name) == 0)
+                {
+                    float old_dist = iter->get_distance();
+                    if (old_dist >= dist)
+                    {
+                        iter->alter_distance(dist);
+                        iter->alter_exit(neighbor_name);
+                        flag = true;
+                    }
+                }
+            }
+            if (flag)
+            {
+                print_table();
+            }
+            break;
+
+        default:
+            break;
+        }
+    }
+    return;
 }
 
-void update_table()
+void print_table()
 {
+    printf("Start print router table:\n");
+    for (auto iter = nodes.begin(); iter != nodes.end(); iter++)
+    {
+        printf("router name:%s   router distance: %.1f   router exit:%s\n", iter->get_name, iter->get_distance, iter->get_exit);
+    }
+    printf("Finish print router table\n");
+    return;
 }
 
-void *recv_thread(void *args)
+void *recv_thread(void *arg)
 {
+    int neighbor_port = (int)arg;
+    sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_addr.sin_port = htons(neighbor_port);
+    socklen_t len = sizeof(server_addr);
+
+    int sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
+    {
+        std::cout << "bind failed" << std::endl;
+        exit(-1);
+    }
+
     while (true)
     {
-        std::cout << "recv thread" << std::endl;
+        //std::cout << "recv thread" << std::endl;
+        int msg_size;
+        char msg[MESSAGE_SIZE];
+        if ((msg_size = recvfrom(sock, (void *)msg, sizeof(msg), 0, (struct sockaddr *)&server_addr, &len)) < 0)
+        {
+            std::cout << "receive message error" << std::endl;
+        }
+        else
+        {
+            update_table(msg);
+        }
+
         sleep(interval);
     }
 }
