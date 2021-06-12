@@ -34,3 +34,4 @@
 #User add
 /test
 /.vscode
+*_log.txt

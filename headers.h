@@ -24,6 +24,7 @@ private:
     char exit_router[ROUTER_NAME_SIZE]; //出口路由
     float distance;
     char name[ROUTER_NAME_SIZE];
+    bool state;
 
 public:
     Node(char *, char *, float);
@@ -33,6 +34,8 @@ public:
     void alter_distance(float);
     void alter_exit(char *);
     char *get_name();
+    bool get_state();
+    void alter_state();
 };
 
 Node::Node(char *name, char *exit_router, float distance)
@@ -40,6 +43,7 @@ Node::Node(char *name, char *exit_router, float distance)
     Node::distance = distance;
     strncpy(Node::name, name, ROUTER_NAME_SIZE);
     strncpy(Node::exit_router, exit_router, ROUTER_NAME_SIZE);
+    Node::state = true;
     std::cout << "Node " << name << " init, distance=" << Node::distance << std::endl;
 }
 
@@ -72,12 +76,23 @@ char *Node::get_name()
     return Node::name;
 }
 
+bool Node::get_state()
+{
+    return Node::state;
+}
+
+void Node::alter_state()
+{
+    Node::state = !Node::state;
+}
+
 class Neighbor
 {
 private:
     float distance;
     int udp_port;
     char name[ROUTER_NAME_SIZE];
+    bool state;
 
 public:
     Neighbor(float, int, char *);
@@ -85,6 +100,8 @@ public:
     float get_distance();
     int get_port();
     const char *get_name();
+    bool get_state();
+    void alter_state();
 };
 
 Neighbor::Neighbor(float distance, int udp_port, char *name)
@@ -92,6 +109,7 @@ Neighbor::Neighbor(float distance, int udp_port, char *name)
     Neighbor::distance = distance;
     Neighbor::udp_port = udp_port;
     strncpy(Neighbor::name, name, ROUTER_NAME_SIZE);
+    Neighbor::state = true;
 }
 
 Neighbor::~Neighbor()
@@ -113,6 +131,16 @@ const char *Neighbor::get_name()
     return (const char *)Neighbor::name;
 }
 
+bool Neighbor::get_state()
+{
+    return Neighbor::state;
+}
+
+void Neighbor::alter_state()
+{
+    Neighbor::state = !Neighbor::state;
+}
+
 void init(char *name, char *udp, char *filename);
 
 std::string send_message(); //编辑要发送的消息
@@ -132,3 +160,7 @@ void restart_prog(); //暂停后的重启。监听键盘输入的线程还没想
 void exit_prog(); //退出
 
 void *listen_thread(void *args); //监听线程
+
+std::string generate_log(int seq);
+
+void *clock_thread(void *args);

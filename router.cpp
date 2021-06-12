@@ -1,8 +1,7 @@
 #include "headers.h"
 
-char router_name[ROUTER_NAME_SIZE];
-int my_port;             //本机udp端口号
-bool pause_flag = false; // 标志是否暂停，false时程序正常执行，true时程序暂停执行。注意恢复的时候要重新初始化
+char my_name[ROUTER_NAME_SIZE];
+int my_port; //本机udp端口号
 int interval;
 int max_distance;
 int max_wait_time;
@@ -10,30 +9,72 @@ int max_wait_time;
 std::vector<Node> nodes;
 std::vector<Neighbor> neighbors;
 
+std::map<int, bool> if_msg;
+
+int send_sock, recv_sock;
+bool pause_flag = false; // 标志是否暂停，false时程序正常执行，true时程序暂停执行。注意恢复的时候要重新初始化
+
 int main(int argc, char **argv)
 {
-    std::cout << argv[1] << argv[2] << argv[3] << std::endl;
-    init(argv[1], argv[2], argv[3]); //启动程序的格式为"./router.exe a 50001 a.txt"，argv[1]表示路由名，argv[2]表示udp端口号，argv[3]表示初始化文件
+    //std::cout << argv[1] << argv[2] << argv[3] << std::endl;
+    if (argc < 4)
+    {
+        printf("Usage: ./router name port filename\n");
+        exit(0);
+    }
 
-    pthread_t tid1, tid_recv, tid_listen;
+restart:
+    init(argv[1], argv[2], argv[3]); //启动程序的true格式为"./router.exe a 50001 a.txt"，argv[1]表示路由名，argv[2]表示udp端口号，argv[3]表示初始化文件
+
+    pthread_t tid_send, tid_recv, tid_clock;
 
     //新开一个线程，定时发送路由表
-    pthread_create(&tid1, NULL, send_thread, NULL);
+    pthread_create(&tid_send, NULL, send_thread, NULL);
 
     //新开一个线程，负责接收路由表，具体数量由邻居节点数量确定
     pthread_create(&tid_recv, NULL, recv_thread, NULL);
 
-    //新开一个线程监听键盘输入，包括暂停/恢复，更改距离
-    pthread_create(&tid_listen, NULL, listen_thread, NULL);
+    //检测是否超时的线程
+    pthread_create(&tid_clock, NULL, clock_thread, NULL);
 
-    pthread_join(tid1, NULL);
-    pthread_join(tid_recv, NULL);
-    pthread_join(tid_listen, NULL);
+    //目前的想法是，在主进程进行控制，暂停就直接杀死线程，恢复就从头开始，这样可以实现距离的改变；退出就直接exit
+    char command[5];
+    while (true)
+    {
+        scanf("%s", command);
+        //printf("%s\n", command);
+        if ((strcmp(command, "P") == 0) && !pause_flag)
+        {
+            //shutdown(send_sock, SHUT_RDWR);
+            //close(send_sock);
+            //pthread_cancel(tid_send);
 
-    //测试用
-    std::cout << send_message() << std::endl;
-    std::cout << nodes.size() << std::endl;
-    std::cout << neighbors.size() << std::endl;
+            shutdown(recv_sock, SHUT_RDWR);
+            close(recv_sock);
+            pthread_cancel(tid_recv);
+
+            pthread_cancel(tid_clock); //这个直接退出应该没问题
+            pause_flag = true;
+            std::cout << "pause" << std::endl;
+        }
+        else if ((strcmp(command, "C") == 0) && pause_flag) //加一个pause_flag，使得正常运行时直接C是无效的
+        {
+            nodes.clear();
+            neighbors.clear();
+            std::cout << "continue" << std::endl;
+            pause_flag = false;
+            goto restart;
+        }
+        else if (strcmp(command, "Q") == 0)
+        {
+            std::cout << "quit" << std::endl;
+            exit(0);
+        }
+        else if (strcmp(command, "T") == 0)
+        {
+            std::cout << "test" << std::endl;
+        }
+    }
     return 0;
 }
 
@@ -44,26 +85,29 @@ void init(char *cur_name, char *udp_port, char *filename)
     int count;
     char neighbor_name[ROUTER_NAME_SIZE];
     float dist;
-    int udp;
+    int neighbor_port;
     fscanf(f, "%d\n", &count);
     for (int i = 0; i < count; ++i)
     {
         memset(neighbor_name, 0, ROUTER_NAME_SIZE);
-        fscanf(f, "%s %f %d\n", neighbor_name, &dist, &udp);
+        fscanf(f, "%s %f %d\n", neighbor_name, &dist, &neighbor_port);
 
-        Neighbor neighbor = Neighbor(dist, udp, neighbor_name);
+        Neighbor neighbor = Neighbor(dist, neighbor_port, neighbor_name);
         neighbors.push_back(neighbor);
         Node node = Node(neighbor_name, neighbor_name, dist);
         nodes.push_back(node);
+        if_msg.insert(std::pair<int, bool>(neighbor_port, false));
     }
 
     //系统文件配置
-    strncpy(router_name, cur_name, ROUTER_NAME_SIZE);
+    strncpy(my_name, cur_name, ROUTER_NAME_SIZE);
     my_port = atoi(udp_port);
     f = fopen(config_path, "r");
     fscanf(f, "%d %d %d", &interval, &max_distance, &max_wait_time);
-
     fclose(f);
+    Node node = Node(my_name, my_name, 0);
+    nodes.push_back(node);
+
     return;
 
     //下面是用fstream的失败版本，用来凑字数
@@ -125,9 +169,13 @@ void init(char *cur_name, char *udp_port, char *filename)
 std::string send_message()
 {
     std::string message;
-    message += router_name;
+    message += my_name;
     for (auto iter = nodes.begin(); iter != nodes.end(); iter++)
     {
+        if (!iter->get_state())
+        {
+            continue;
+        }
         message = message + " " + iter->get_name() + " " + std::to_string(iter->get_distance());
     }
     return message;
@@ -135,7 +183,7 @@ std::string send_message()
 
 void *send_thread(void *args)
 {
-    //绑定端口
+    //建立连接
     int sock;
     if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
     {
@@ -146,12 +194,21 @@ void *send_thread(void *args)
     memset(&client_addr, 0, sizeof(client_addr));
     client_addr.sin_family = AF_INET;
     client_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
-    char msg[MESSAGE_SIZE];
 
-    while (true)
+    char msg[MESSAGE_SIZE];
+    int seq = 1;
+
+    //先将日志文件清空
+    std::string filename = my_name;
+    filename += "_log.txt";
+    FILE *f = fopen(filename.c_str(), "w");
+    fclose(f);
+
+    while (!pause_flag)
     {
         //std::cout << "send thread" << std::endl;
         std::string tmp_msg = send_message();
+        std::string log = generate_log(seq);
         memset(msg, 0, MESSAGE_SIZE);
         for (int i = 0; i < tmp_msg.length(); ++i)
         {
@@ -159,6 +216,10 @@ void *send_thread(void *args)
         }
         for (auto iter = neighbors.begin(); iter != neighbors.end(); iter++)
         {
+            if (!iter->get_state())
+            {
+                continue;
+            }
             int neighbor_port = iter->get_port();
             client_addr.sin_port = htons(neighbor_port);
             int len;
@@ -174,6 +235,13 @@ void *send_thread(void *args)
 
             //应该是这么写吧
         }
+        std::cout << log.c_str();
+        std::string filename = my_name;
+        filename += "_log.txt";
+        FILE *f = fopen(filename.c_str(), "a");
+        fprintf(f, "%s", log.c_str());
+        fclose(f);
+        seq += 1;
         sleep(interval);
     }
     pthread_exit(NULL);
@@ -181,7 +249,6 @@ void *send_thread(void *args)
 
 void update_table(char *msg)
 {
-    printf("###############\n");
     char *tmp = msg;
     char *rest = NULL;
     int count = 0;
@@ -190,6 +257,7 @@ void update_table(char *msg)
     float neighbor_dist;
     char neighbor_name[ROUTER_NAME_SIZE];
     bool flag = false;
+    bool in_table = false;
     while ((tmp = strtok_r(tmp, " ", &rest)) != NULL)
     {
         switch (count)
@@ -202,6 +270,11 @@ void update_table(char *msg)
                     neighbor_dist = iter->get_distance();
                     strncpy(neighbor_name, iter->get_name(), ROUTER_NAME_SIZE);
                     std::cout << "receive message from " << neighbor_name << std::endl;
+                    if (!iter->get_state())
+                    {
+                        iter->alter_state();
+                    }
+                    if_msg[iter->get_port()] = true;
                     break;
                 }
             }
@@ -218,18 +291,34 @@ void update_table(char *msg)
         case 2:
             count--;
             dist = atof(tmp);
+            dist += neighbor_dist;
+            if (dist >= max_distance)
+            {
+                break; //如果超出最大距离则直接跳过（无论该节点是否在路由表中都不需要更新）
+            }
+            in_table = false;
             for (auto iter = nodes.begin(); iter != nodes.end(); iter++)
             {
                 if (strcmp(iter->get_name(), router_name) == 0)
                 {
+                    in_table = true;
                     float old_dist = iter->get_distance();
-                    if (old_dist > dist + neighbor_dist)
+                    if (old_dist > dist)
                     {
                         iter->alter_distance(dist);
                         iter->alter_exit(neighbor_name);
                         flag = true;
                     }
+                    if (!iter->get_state())
+                    {
+                        iter->alter_state();
+                    }
                 }
+            }
+            if (!in_table)
+            {
+                Node node = Node(router_name, neighbor_name, dist);
+                nodes.push_back(node);
             }
             tmp = NULL;
             break;
@@ -262,11 +351,11 @@ void *recv_thread(void *arg)
     server_addr.sin_port = htons(my_port);
     socklen_t len = sizeof(server_addr);
 
-    int sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
+    recv_sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (bind(recv_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
     {
         std::cout << "bind failed" << std::endl;
-        close(sock);
+        close(recv_sock);
         exit(-1);
     }
     std::cout << "listening port " << my_port << std::endl;
@@ -275,39 +364,70 @@ void *recv_thread(void *arg)
     char msg[MESSAGE_SIZE];
     while (true)
     {
-        printf("--------------------\n");
         //std::cout << "recv thread" << std::endl;
-        if ((msg_size = recvfrom(sock, (void *)msg, sizeof(msg), 0, (struct sockaddr *)&server_addr, &len)) < 0)
+        if ((msg_size = recvfrom(recv_sock, (void *)msg, sizeof(msg), 0, (struct sockaddr *)&server_addr, &len)) < 0)
         {
             std::cout << "receive message error" << std::endl;
         }
         else
         {
-            std::cout << "receive message" << std::endl;
             update_table(msg);
         }
         sleep(interval);
     }
 }
 
-void listen_keyboard()
+std::string generate_log(int seq)
 {
+    char buf[BUFSIZ];
+    sprintf(buf, "%d", seq);
+    std::string log;
+    log = log + "## Sent. Source node name = " + my_name + "; Sequence number = " + buf + "\n";
+    for (auto iter = nodes.begin(); iter != nodes.end(); iter++)
+    {
+        if (!iter->get_state())
+        {
+            log = log + "节点 " + iter->get_name() + " 超时\n";
+            continue;
+        }
+        sprintf(buf, "%.1f", iter->get_distance());
+        log = log + "Dest node = " + iter->get_name() + "; Distance = " + buf + "; Neighbor = " + iter->get_exit() + "\n";
+    }
+    return log;
 }
 
-void restart_prog()
+void *clock_thread(void *args)
 {
-}
-
-void exit_prog()
-{
-}
-
-void *listen_thread(void *args)
-{
-    //     while (true)
-    //     {
-    //         std::cout << "listen thread" << std::endl;
-    //         sleep(interval);
-    //     }
-    return;
+    while (true)
+    {
+        sleep(max_wait_time);
+        for (auto iter = if_msg.begin(); iter != if_msg.end(); iter++)
+        {
+            if (iter->second == true)
+            {
+                iter->second = false;
+            }
+            else
+            {
+                char exit[ROUTER_NAME_SIZE];
+                for (auto iter1 = neighbors.begin(); iter1 != neighbors.end(); iter1++)
+                {
+                    if (iter1->get_port() == iter->first)
+                    {
+                        std::cout << "邻居节点 " << iter1->get_name() << " 超时" << std::endl;
+                        iter1->alter_state();
+                        strncpy(exit, iter1->get_name(), ROUTER_NAME_SIZE);
+                        break;
+                    }
+                }
+                for (auto iter1 = nodes.begin(); iter1 != nodes.end(); iter1++)
+                {
+                    if (strcmp(iter1->get_exit(), exit) == 0)
+                    {
+                        iter1->alter_state();
+                    }
+                }
+            }
+        }
+    }
 }
